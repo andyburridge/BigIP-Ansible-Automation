@@ -1,0 +1,123 @@
+################################################################################
+# Create a generic virtual server that listens for HTTP connections and        #
+# sends traffic over HTTP to the backend.                                      #
+#                                                                              #
+# Input Files:                                                                 #
+# - hosts                                                                      #
+#   File containing the IP or DNS Name of the BigIP device                     #
+# - password-vault.yaml                                                        #
+#   File containing username and password used to connect to the bigip device  #
+# - http-vs-config.yaml                                                        #
+#   File containing attributes required for virtual server creation            #
+#   (partition, service name, etc.)                                            #
+#                                                                              #
+# Input variables:                                                             #
+# - partition_to_vlan                                                          #
+#   List containing the VLAN mappings for particular partition environments.   #
+#   Used to ensure virtual server is created with correct VLAN assignments     #
+#   without the end user needing to specify this.                              #
+################################################################################
+
+- name: Create HTTP Virtual Server
+  hosts: big-ip-live
+  connection: local
+  vars_files:
+      - password-vault.yaml
+      - http-vs-config.yaml
+  vars:
+    partition_to_vlan:
+      PROD: 
+        - VLAN1
+        - VLAN2
+      PREPROD:
+        - VLAN1
+        - VLAN2
+      UAT:
+        - VLAN1
+        - VLAN2
+       
+  tasks:
+      - name: Create Nodes
+        bigip_node:
+            server: "{{ inventory_hostname }}"
+            user: "{{ username }}"
+            password: "{{ password }}"
+            validate_certs: False
+            state: "present"
+            host: "{{ item.ip }}"
+            name: "{{ item.name }}"
+            partition: "{{ partition }}"
+            monitors:
+              - /{{ partition }}/{{ partition }}-GENERIC-MONITOR-ICMP
+        with_items:
+          - "{{ nodes }}"
+
+      - name: Create Monitor
+        bigip_monitor_http:
+            server: "{{ inventory_hostname }}"
+            user: "{{ username }}"
+            password: "{{ password }}"
+            validate_certs: False
+            state: "present"
+            name: "{{ partition }}-{{ service }}-MONITOR-HTTP-{{ monitorport }}"
+            send: "{{ monitorsend }}"
+            receive: "{{ monitorreceive }}"
+            partition: "{{ partition }}"
+            port: "{{ monitorport }}"
+
+      - name: Create Pool
+        bigip_pool:
+            server: "{{ inventory_hostname }}"
+            user: "{{ username }}"
+            password: "{{ password }}"
+            validate_certs: False
+            state: "present"
+            name: "{{ partition }}-{{ service }}-POOL-HTTP-{{ serverport }}"
+            partition: "{{ partition }}"
+            monitors: "{{ partition }}-{{ service }}-MONITOR-HTTP-{{ monitorport }}"
+            monitor_type: "and_list"
+            description: "{{ partition }} {{ service }} Pool. HTTP over TCP/{{ serverport }}"
+
+      - name: Add Nodes To Pool
+        bigip_pool_member:
+            server: "{{ inventory_hostname }}"
+            user: "{{ username }}"
+            password: "{{ password }}"
+            validate_certs: False
+            state: "present"
+            partition: "{{ partition }}"
+            host: "{{ item.name }}"
+            pool: "{{ partition }}-{{ service }}-POOL-HTTP-{{ serverport }}"
+            port: "{{ serverport }}"
+        with_items:
+          - "{{ nodes }}"    
+
+      # N.B. As of version 2.5, profiles other than Client-SSL cannot be created/deleted with an Ansible module, instead, we send a command to the device to create these profiles.
+      - name: Create Profiles
+        bigip_command:
+            server: "{{ inventory_hostname }}"
+            user: "{{ username }}"
+            password: "{{ password }}"
+            validate_certs: False
+            commands: 
+              - create ltm profile http /{{ partition }}/{{ partition }}-{{ service }}-PROFILE-HTTP
+              - create ltm profile tcp /{{ partition }}/{{ partition }}-{{ service }}-PROFILE-TCP
+
+      - name: Create Virtual Server
+        bigip_virtual_server:
+            server: "{{ inventory_hostname }}"
+            user: "{{ username }}"
+            password: "{{ password }}"
+            validate_certs: False
+            state: "present"
+            partition: "{{ partition }}"
+            name: "{{ partition }}-{{ service }}-VS-HTTP-{{ serverport }}"
+            destination: "{{ serverip }}"
+            port: "{{ serverport }}"
+            pool: "{{ partition }}-{{ service }}-POOL-HTTP-{{ serverport }}"
+            snat: "Automap"
+            description: "{{ partition }} {{ service }} Virtual Server. HTTP over TCP/{{ serverport }}"
+            all_profiles:
+                - "{{ partition }}-{{ service }}-PROFILE-HTTP"
+                - "{{ partition }}-{{ service }}-PROFILE-TCP"
+            enabled_vlans: "{{ partition_to_vlan[partition] }}"

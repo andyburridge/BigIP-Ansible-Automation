@@ -1,0 +1,69 @@
+# **************************************************************************************************
+
+# Common parameters (3 - All required)
+
+# 1. 'partition' 
+# A string value representing the environment in which the virtual server should reside.  
+
+# 2. 'service'
+# A string value representing a descriptive service name, for example "EXCHANGE".  If the service contains
+# more than one word, please hyphenate, for example "ACTUS-ORDER-API".
+
+# 3. 'serverport'
+# A string value representing the TCP port that the virtual server should listen on for incoming connections.
+# Typically, this will be 80 for HTTP.
+
+partition: "PREPROD"
+service: "API-GATEWAY"
+serverport: "80"
+
+# **************************************************************************************************
+
+# Node parameters (1 - Required)
+
+# 1. 'nodes'
+# A list representing the nodes to add to the virtual server.  This can be as many nodes as required, the 
+# playbook will iterate over the list.  The format should be:
+
+# nodes:
+#  - { name: "node1", ip: "x.x.x.x" }
+#  - { name: "node2", ip: "x.x.x.x" }
+
+nodes:
+  - { name: "SERVER-01", ip: "192.168.0.1" }
+  - { name: "SERVER-02", ip: "192.168.0.2" }
+
+
+# **************************************************************************************************
+
+# Monitor parameters (3 - All required)
+
+# 1. 'monitorport'
+# A string value representing the TCP port that the F5 should use to poll the backend nodes for the 
+# health check.
+
+# 2. 'monitorsend'
+# A string representing the HTTP string to send to the backend nodes as a health check.  For example:
+# "GET /health HTTP/1.1\\r\\nHost: api-gateway.sample.com\\r \\nConnection: Close\\r\\n\\r\\n"
+
+# 3. 'monitorreceive'
+# A string representing the HTTP string that the F5 will compare to the HTTP response from the server
+# to determine if the node can be marked as up.  For example:
+# "HTTP/1.[01] (200)"
+
+monitorport: "80"
+monitorsend: "GET /health HTTP/1.1\\r\\nHost: api-gateway.sample.com\\r \\nConnection: Close\\r\\n\\r\\n"
+monitorreceive: "HTTP/1.[01] (200)"
+
+
+# **************************************************************************************************
+
+
+# Virtual Server parameters (1 - Required)
+
+# 1. 'serverip'
+# A string value representing the VIP that the virtual server will listen on for inbound 
+# connections.  Please choose an IP address from the relevant VLAN for the environment and 
+# document in the IP spreadsheet.  
+
+serverip: "192.168.0.100"

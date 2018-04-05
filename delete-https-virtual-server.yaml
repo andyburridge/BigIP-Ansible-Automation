@@ -1,0 +1,117 @@
+################################################################################
+# Delete a generic virtual server that listens for HTTPS connections and        #
+# sends traffic over HTTP to the backend.                                      #
+#                                                                              #
+# Input Files:                                                                 #
+# - password-vault.yaml                                                        #
+#   File containing username and password used to connect to the bigip device  #
+# - http-vs-config.yaml                                                        #
+#   File containing attributes required for virtual server deletion            #
+#   (partition, service name, etc.)                                            #
+################################################################################
+
+- name: Delete HTTPS Virtual Server
+  hosts: big-ip-live
+  connection: local
+  vars_files:
+      - password-vault.yaml
+      - https-vs-config.yaml
+ 
+  tasks:
+      - name: Delete Virtual Server
+        bigip_virtual_server:
+            server: "{{ inventory_hostname }}"
+            user: "{{ username }}"
+            password: "{{ password }}"
+            validate_certs: False
+            state: "absent"
+            partition: "{{ partition }}"
+            name: "{{ partition }}-{{ service }}-VS-HTTPS-{{ serverport }}"
+
+      - name: Delete Redirect Virtual Server
+        bigip_virtual_server:
+            server: "{{ inventory_hostname }}"
+            user: "{{ username }}"
+            password: "{{ password }}"
+            validate_certs: False
+            state: "absent"
+            partition: "{{ partition }}"
+            name: "{{ partition }}-{{ service }}-VS-REDIRECT-HTTP-{{ redirectport }}"
+
+      - name: Remove Nodes From Pool
+        bigip_pool_member:
+            server: "{{ inventory_hostname }}"
+            user: "{{ username }}"
+            password: "{{ password }}"
+            validate_certs: False
+            state: "absent"
+            partition: "{{ partition }}"
+            host: "{{ item.name }}"
+            pool: "{{ partition }}-{{ service }}-POOL-HTTP-{{ serverport }}"
+            port: "{{ serverport }}"
+        with_items:
+          - "{{ nodes }}"        
+
+      - name: Delete Pools
+        bigip_pool:
+            server: "{{ inventory_hostname }}"
+            user: "{{ username }}"
+            password: "{{ password }}"
+            validate_certs: False
+            state: "absent"
+            name: "{{ partition }}-{{ service }}-POOL-HTTP-{{ serverport }}"
+            partition: "{{ partition }}"
+
+      - name: Delete Monitor
+        bigip_monitor_http:
+            server: "{{ inventory_hostname }}"
+            user: "{{ username }}"
+            password: "{{ password }}"
+            validate_certs: False
+            state: "absent"
+            name: "{{ partition }}-{{ service }}-MONITOR-HTTP-{{ monitorport }}"
+            partition: "{{ partition }}"
+
+      - name: Delete Nodes
+        bigip_node:
+            server: "{{ inventory_hostname }}"
+            user: "{{ username }}"
+            password: "{{ password }}"
+            validate_certs: False
+            state: "absent"
+            name: "{{ item.name }}"
+            partition: "{{ partition }}"
+        with_items:
+          - "{{ nodes }}"
+
+      # N.B. As of version 2.5, profiles other than Client-SSL cannot be created/deleted with an Ansible module, instead, we send a command to the device to create these profiles.
+      - name: Delete Profiles
+        bigip_command:
+            server: "{{ inventory_hostname }}"
+            user: "{{ username }}"
+            password: "{{ password }}"
+            validate_certs: False
+            commands: 
+              - delete ltm profile http /{{ partition }}/{{ partition }}-{{ service }}-PROFILE-HTTP
+              - delete ltm profile tcp /{{ partition }}/{{ partition }}-{{ service }}-PROFILE-TCP
+      
+      - name: Delete SSL Profile
+        bigip_profile_client_ssl:
+            server: "{{ inventory_hostname }}"
+            user: "{{ username }}"
+            password: "{{ password }}"
+            validate_certs: False
+            state: "absent"
+            partition: "{{ partition }}"
+            name: "{{ partition }}-{{ service }}-PROFILE-CLIENT-SSL"
+
+      - name: Create iRules
+        bigip_irule:
+            server: "{{ inventory_hostname }}"
+            user: "{{ username }}"
+            password: "{{ password }}"
+            validate_certs: False
+            state: "absent"
+            name: "{{ partition }}-{{ service }}-IRULE-HTTP-REDIRECT"
+            partition: "{{ partition }}"
+            module: ltm
